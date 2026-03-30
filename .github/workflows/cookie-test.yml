@@ -86,10 +86,29 @@ jobs:
           AGENT_BROWSER_ARGS: --no-sandbox,--disable-dev-shm-usage
         run: bun run-test.ts
 
+      - name: Inspect generated evidence
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+
+          echo "--- evidence files ---"
+          find evidence -maxdepth 3 -type f | sort || true
+
+          if [ -f evidence/auth/recording.webm ]; then
+            echo "--- recording.webm details ---"
+            ls -lh evidence/auth/recording.webm
+          else
+            echo "recording.webm was not generated"
+          fi
+
+          echo "--- logs ---"
+          find logs -maxdepth 2 -type f | sort || true
+
       - name: Upload evidence
         if: ${{ always() }} 
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: auth-browser-test-evidence
           path: |
             evidence/
+            logs/

@@ -1,5 +1,3 @@
-import { existsSync, mkdirSync } from "node:fs";
-
 type CommandResult = {
   exitCode: number;
   stdout: string;
@@ -7,24 +5,25 @@ type CommandResult = {
 };
 
 const decoder = new TextDecoder();
-const AGENT_BROWSER_BIN = resolveAgentBrowserBin();
 const WEB_URL = Bun.env.WEB_URL ?? "http://localhost:3001";
 const EMAIL = Bun.env.HARNESS_TEST_EMAIL ?? "harness@test.local";
 const PASSWORD = Bun.env.HARNESS_TEST_PASSWORD ?? "harness-test-password";
 const EVIDENCE_DIR = Bun.env.EVIDENCE_DIR ?? "evidence/auth";
 
-function resolveAgentBrowserBin(): string {
+async function resolveAgentBrowserBin(): Promise<string> {
   if (Bun.env.AGENT_BROWSER_BIN) {
     return Bun.env.AGENT_BROWSER_BIN;
   }
 
   const localBinary = "./node_modules/.bin/agent-browser";
-  if (existsSync(localBinary)) {
+  if (await Bun.file(localBinary).exists()) {
     return localBinary;
   }
 
   return "agent-browser";
 }
+
+const AGENT_BROWSER_BIN = await resolveAgentBrowserBin();
 
 function decode(output: Uint8Array | null | undefined): string {
   return decoder.decode(output ?? new Uint8Array()).replaceAll("\r", "");
@@ -107,8 +106,48 @@ function clickFirst(label: string, selectors: string[]): void {
   throw new Error(`Unable to click ${label} using selectors: ${selectors.join(", ")}`);
 }
 
+function ensureDir(path: string): void {
+  const proc = Bun.spawnSync({
+    cmd: ["mkdir", "-p", path],
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+  if (proc.exitCode !== 0) {
+    throw new Error(`Failed to create directory ${path}: ${decode(proc.stderr).trim()}`);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForFile(path: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const file = Bun.file(path);
+    if (await file.exists() && file.size > 0) {
+      return true;
+    }
+
+    await sleep(250);
+  }
+
+  return false;
+}
+
+async function getFileSize(path: string): Promise<number> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return 0;
+  }
+
+  return file.size;
+}
+
 async function main(): Promise<void> {
-  mkdirSync(EVIDENCE_DIR, { recursive: true });
+  ensureDir(EVIDENCE_DIR);
 
   const normalizedWebUrl = WEB_URL.replace(/\/$/, "");
   const videoPath = `${EVIDENCE_DIR}/recording.webm`;
@@ -208,6 +247,12 @@ async function main(): Promise<void> {
   } finally {
     tryRun("save HAR", "network", "har", "stop", `${EVIDENCE_DIR}/network.har`);
     tryRun("stop recording", "record", "stop");
+    const recordingReady = await waitForFile(videoPath, 5000);
+    if (recordingReady) {
+      console.log(`Recording saved: ${videoPath} (${await getFileSize(videoPath)} bytes)`);
+    } else {
+      console.log(`Recording not found after stop: ${videoPath}`);
+    }
     tryRun("close browser", "close");
   }
 }
