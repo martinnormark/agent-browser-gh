@@ -9,6 +9,7 @@ const WEB_URL = Bun.env.WEB_URL ?? "http://localhost:3001";
 const EMAIL = Bun.env.HARNESS_TEST_EMAIL ?? "harness@test.local";
 const PASSWORD = Bun.env.HARNESS_TEST_PASSWORD ?? "harness-test-password";
 const EVIDENCE_DIR = Bun.env.EVIDENCE_DIR ?? "evidence/auth";
+let AGENT_BROWSER_BIN = "agent-browser";
 
 async function resolveAgentBrowserBin(): Promise<string> {
   if (Bun.env.AGENT_BROWSER_BIN) {
@@ -22,9 +23,6 @@ async function resolveAgentBrowserBin(): Promise<string> {
 
   return "agent-browser";
 }
-
-const AGENT_BROWSER_BIN = await resolveAgentBrowserBin();
-
 function decode(output: Uint8Array | null | undefined): string {
   return decoder.decode(output ?? new Uint8Array()).replaceAll("\r", "");
 }
@@ -148,6 +146,7 @@ async function getFileSize(path: string): Promise<number> {
 
 async function main(): Promise<void> {
   ensureDir(EVIDENCE_DIR);
+  AGENT_BROWSER_BIN = await resolveAgentBrowserBin();
 
   const normalizedWebUrl = WEB_URL.replace(/\/$/, "");
   const videoPath = `${EVIDENCE_DIR}/recording.webm`;
@@ -257,4 +256,12 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+main().then(() => {
+  console.log("All done!");
+  process.exit(0);
+})
+.catch((error) => {
+  console.error("=== TEST FAILED ===");
+  console.error(error);
+  process.exit(1);
+});
